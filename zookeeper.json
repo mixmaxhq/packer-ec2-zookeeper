@@ -1,0 +1,86 @@
+{
+  "variables": {
+    "region": "{{ env `AWS_REGION` }}",
+    "subnet_id": "{{ env `SUBNET_ID` }}",
+    "vpc_id": "{{ env `VPC_ID` }}",
+    "security_group_id": "{{ env `SECURITY_GROUP_ID` }}",
+    "iam_instance_profile": "{{ env `IAM_INSTANCE_PROFILE` }}",
+    "aws_credentials_profile": "{{ env `AWS_CREDENTIALS_PROFILE` }}"
+  },
+  "builders": [
+    {
+      "profile": "{{ user `aws_credentials_profile`}}",
+      "ami_name": "zookeeper-{{timestamp}}",
+      "instance_type": "t3a.xlarge",
+      "region": "us-east-1",
+      "ssh_username": "ubuntu",
+      "type": "amazon-ebs",
+      "source_ami_filter": {
+        "filters": {
+          "name": "ubuntu/images/hvm-ssd/ubuntu-focal-20.04-amd64-server-*"
+        },
+        "owners": ["099720109477"],
+        "most_recent": true
+      },
+      "security_group_id": "{{ user `security_group_id`}}",
+      "subnet_id": "{{ user `subnet_id`}}",
+      "vpc_id": "{{ user `vpc_id`}}",
+      "launch_block_device_mappings": [
+        {
+          "device_name": "/dev/sda1",
+          "encrypted": true,
+          "volume_size": 100,
+          "volume_type": "gp2",
+          "delete_on_termination": true
+        }
+      ],
+      "iam_instance_profile": "{{ user `iam_instance_profile`}}",
+      "tags": {
+        "Name": "zookeeper-{{timestamp}}",
+        "BaseAMI": "{{ .SourceAMIName }}"
+      }
+    }
+  ],
+  "provisioners": [
+    {
+      "type": "file",
+      "source": "./cloudwatch_config.json.template",
+      "destination": "/tmp/amazon-cloudwatch-agent.json"
+    },
+    {
+      "type": "shell",
+      "inline": [
+        "sudo apt update",
+        "sudo apt upgrade -y",
+        "sudo apt install -y libssl1.1 libpcap0.8 libcurl4 libc6 libgcc1 libstdc++6 # required for inspector",
+        "wget https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb -O /tmp/cloudwatch.deb",
+        "sudo dpkg -i /tmp/cloudwatch.deb",
+        "sudo systemctl enable amazon-cloudwatch-agent.service",
+        "sudo mv /tmp/amazon-cloudwatch-agent.json /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json",
+        "wget https://inspector-agent.amazonaws.com/linux/latest/install -O /tmp/inspector_install.sh",
+        "wget https://d1wk0tztpsntt1.cloudfront.net/linux/latest/inspector.gpg -O /tmp/inspector.key",
+        "wget https://inspector-agent.amazonaws.com/linux/latest/install.sig -O /tmp/inspector_install.sh.sig",
+        "gpg --import /tmp/inspector.key",
+        "gpg --verify /tmp/inspector_install.sh.sig",
+        "sudo bash /tmp/inspector_install.sh"
+      ]
+    },
+    {
+      "type": "shell",
+      "inline": [
+        "sudo add-apt-repository universe",
+        "sudo apt update",
+        "sudo apt upgrade -y",
+        "sudo apt install -y zookeeper"
+      ]
+    },
+    {
+      "type": "shell",
+      "inline": ["sudo DEBIAN_FRONTEND=noninteractive apt-get install -y aide"]
+    },
+    {
+      "type": "shell",
+      "inline": ["sudo rm -rf /tmp/*", "sudo rm -rf /var/lib/cloud/*"]
+    }
+  ]
+}
